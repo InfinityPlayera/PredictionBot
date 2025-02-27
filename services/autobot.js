@@ -7,7 +7,7 @@ const ClaimEpoch = require('../models/claimModel');
 class AutoBot {
     constructor(telegramBot) {
         this.telegramBot = telegramBot;
-        this.betAmount = "10000000000000000";
+        this.betAmount = ethers.parseEther("0.001");
         this.isRunning = false;
         this.listenerProvider = null;
         this.txProvider = null;
