@@ -238,32 +238,6 @@ class AutoBot {
             this.listenerProvider = new ethers.WebSocketProvider(WSS_ENDPOINTS_CALL);
             this.txProvider = new ethers.WebSocketProvider(WSS_ENDPOINTS_TX);
 
-            // // Add WebSocket error handlers
-            // this.listenerProvider._websocket.on('error', async (error) => {
-            //     console.error('Listener WebSocket error:', error);
-            //     await this.sendTelegramMessage('⚠️ Listener WebSocket error, attempting to reconnect...');
-            //     await this.reconnect();
-            // });
-
-            // this.txProvider._websocket.on('error', async (error) => {
-            //     console.error('Transaction WebSocket error:', error);
-            //     await this.sendTelegramMessage('⚠️ Transaction WebSocket error, attempting to reconnect...');
-            //     await this.reconnect();
-            // });
-
-            // // Add WebSocket close handlers
-            // this.listenerProvider._websocket.on('close', async () => {
-            //     console.log('Listener WebSocket closed');
-            //     await this.sendTelegramMessage('⚠️ Listener WebSocket closed, attempting to reconnect...');
-            //     await this.reconnect();
-            // });
-
-            // this.txProvider._websocket.on('close', async () => {
-            //     console.log('Transaction WebSocket closed');
-            //     await this.sendTelegramMessage('⚠️ Transaction WebSocket closed, attempting to reconnect...');
-            //     await this.reconnect();
-            // });
-
             // Create wallet from private key
             if (!process.env.PRIVATE_KEY) {
                 throw new Error('PRIVATE_KEY not found in environment variables');
@@ -277,17 +251,23 @@ class AutoBot {
             // Define listeners
             this.bullListener = async (sender, epoch, amount, event) => {
                 try {
+                    const block = await this.listenerProvider.getBlock(event.blockNumber);
+                    const blockTimestamp = new Date(block.timestamp * 1000);
+                    
                     const message = `
 🟢 BULL BET Detected:
 Address: ${sender}
 Epoch: ${epoch.toString()}
-Amount: ${ethers.formatEther(amount)} BNB`;
+Amount: ${ethers.formatEther(amount)} BNB
+BlockTime: ${blockTimestamp.toISOString()}
+CurrentTime: ${Date.now()}`;
 
                     console.log(message);
-                    await this.sendTelegramMessage(message);
+                    // await this.sendTelegramMessage(message);
 
                     if (sender.toLowerCase() === process.env.TARGET_ADDRESS?.toLowerCase()) {
                         await this.sendTelegramMessage('🎯 Target address matched!');
+                        await this.sendTelegramMessage(message);
                         try {
                             await this.placeBullBet(epoch, this.betAmount);
                             await this.sendTelegramMessage('✅ Bet Bull placed, waiting for next transaction...');
@@ -306,17 +286,23 @@ Amount: ${ethers.formatEther(amount)} BNB`;
 
             this.bearListener = async (sender, epoch, amount, event) => {
                 try {
+                    const block = await this.listenerProvider.getBlock(event.blockNumber);
+                    const blockTimestamp = new Date(block.timestamp * 1000);
+
                     const message = `
 🔴 BEAR BET Detected:
 Address: ${sender}
 Epoch: ${epoch.toString()}
-Amount: ${ethers.formatEther(amount)} BNB`;
+Amount: ${ethers.formatEther(amount)} BNB
+BlockTime: ${blockTimestamp.toISOString()}
+CurrentTime: ${Date.now()}`;
 
                     console.log(message);
-                    await this.sendTelegramMessage(message);
+                    // await this.sendTelegramMessage(message);
 
                     if (sender.toLowerCase() === process.env.TARGET_ADDRESS?.toLowerCase()) {
                         await this.sendTelegramMessage('🎯 Target address matched!');
+                        await this.sendTelegramMessage(message);
                         try {
                             await this.placeBearBet(epoch, this.betAmount);
                             await this.sendTelegramMessage('✅ Bet Bear placed, waiting for next transaction...');
