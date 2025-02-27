@@ -10,12 +10,16 @@ const { handler: startbotHandler, getAutoBot } = require('./commands/startbot');
 const claimHandler = require('./commands/claim');
 const stopHandler = require('./commands/stop');
 const statusHandler = require('./commands/status');
+const betbullHandler = require('./commands/betbull');
+const betbearHandler = require('./commands/betbear');
 
 bot.start(isPrivateChat, startHandler);
 bot.command('startbot', isPrivateChat, startbotHandler);
 bot.command('claim', isPrivateChat, claimHandler);
 bot.command('stop', isPrivateChat, stopHandler);
 bot.command('status', isPrivateChat, statusHandler);
+bot.command('betbull', isPrivateChat, betbullHandler);
+bot.command('betbear', isPrivateChat, betbearHandler);
 
 // Add error handler for the bot
 bot.catch((error, ctx) => {

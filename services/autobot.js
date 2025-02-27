@@ -164,7 +164,7 @@ class AutoBot {
             await ClaimEpoch.updateMany(
                 {
                     epoch: { $in: claimableEpochs },
-                    userAddress: bet.userAddress
+                    userAddress: this.wallet.address
                 },
                 {
                     claimed: true
