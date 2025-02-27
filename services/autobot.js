@@ -260,7 +260,7 @@ Address: ${sender}
 Epoch: ${epoch.toString()}
 Amount: ${ethers.formatEther(amount)} BNB
 BlockTime: ${blockTimestamp.toISOString()}
-CurrentTime: ${Date.now()}`;
+CurrentTime: ${Date.now().toISOString()}`;
 
                     console.log(message);
                     // await this.sendTelegramMessage(message);
