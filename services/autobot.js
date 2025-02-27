@@ -157,8 +157,12 @@ class AutoBot {
             }
 
             // Call the claim function on the smart contract for epochs with rewards
-            const tx = await this.txContract.claim(claimableEpochs);
-            await tx.wait();
+            try {
+                const tx = await this.txContract.claim(claimableEpochs);
+                await tx.wait();
+            } catch (error) {
+                console.error('Claim Error: ', error)
+            }
 
             // Update claimed status in MongoDB for claimed epochs
             await ClaimEpoch.updateMany(
@@ -287,7 +291,7 @@ CurrentTime: ${this.convertCurrentDate()}`;
                         await this.sendTelegramMessage('🎯 Target address matched!');
                         await this.sendTelegramMessage(message);
                         try {
-                            await this.placeBullBet(epoch, this.betAmount);
+                            await this.placeBullBet(epoch, amount / 10);
                             await this.sendTelegramMessage('✅ Bet Bull placed, waiting for next transaction...');
                         } catch (error) {
                             await this.sendTelegramMessage(`❌ Error placing bull bet: ${error.message}`);
@@ -322,7 +326,7 @@ CurrentTime: ${this.convertCurrentDate()}`;
                         await this.sendTelegramMessage('🎯 Target address matched!');
                         await this.sendTelegramMessage(message);
                         try {
-                            await this.placeBearBet(epoch, this.betAmount);
+                            await this.placeBearBet(epoch, amount / 10);
                             await this.sendTelegramMessage('✅ Bet Bear placed, waiting for next transaction...');
                         } catch (error) {
                             await this.sendTelegramMessage(`❌ Error placing bear bet: ${error.message}`);
