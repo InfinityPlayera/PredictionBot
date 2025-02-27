@@ -76,6 +76,24 @@ class AutoBot {
         }
     }
 
+    convertCurrentDate() {
+        // Get the current timestamp
+        const now = Date.now();
+        // Create a new Date object
+        const date = new Date(now);
+        // Extract the components
+        const year = String(date.getFullYear()).slice(-2); // Last two digits of the year
+        const month = String(date.getMonth() + 1).padStart(2, '0'); // Months are 0-indexed
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        const milliseconds = String(date.getMilliseconds()).padStart(3, '0'); // Milliseconds can have 3 digits
+        // Format the string
+        const formattedDate = `${year}/${month}/${day} ${hours}/${minutes}/${seconds}/${milliseconds}`;
+        return formattedDate;
+    }
+
     async claimRewards() {
         try {
             // Get unclaimed bets from MongoDB
@@ -174,16 +192,16 @@ class AutoBot {
             return false;
         }
     }
-    
+
     async monitorConnection() {
         if (!this.isRunning) return;
-        
+
         const isConnected = await this.checkConnection();
         if (!isConnected) {
             await this.sendTelegramMessage('⚠️ Connection lost, attempting to reconnect...');
             await this.reconnect();
         }
-        
+
         // Check connection every 30 seconds
         setTimeout(() => this.monitorConnection(), 30000);
     }
@@ -253,14 +271,14 @@ class AutoBot {
                 try {
                     const block = await this.listenerProvider.getBlock(event.blockNumber);
                     const blockTimestamp = new Date(block.timestamp * 1000);
-                    
+
                     const message = `
 🟢 BULL BET Detected:
 Address: ${sender}
 Epoch: ${epoch.toString()}
 Amount: ${ethers.formatEther(amount)} BNB
 BlockTime: ${blockTimestamp.toISOString()}
-CurrentTime: ${Date.now().toISOString()}`;
+CurrentTime: ${this.convertCurrentDate()}`;
 
                     console.log(message);
                     // await this.sendTelegramMessage(message);
@@ -295,7 +313,7 @@ Address: ${sender}
 Epoch: ${epoch.toString()}
 Amount: ${ethers.formatEther(amount)} BNB
 BlockTime: ${blockTimestamp.toISOString()}
-CurrentTime: ${Date.now().toISOString()}`;
+CurrentTime: ${this.convertCurrentDate()}`;
 
                     console.log(message);
                     // await this.sendTelegramMessage(message);
