@@ -280,10 +280,8 @@ class AutoBot {
 🟢 BULL BET Detected:
 Address: ${sender}
 Epoch: ${epoch.toString()}
-Amount: ${ethers.formatEther(amount)} BNB
-BlockTime: ${blockTimestamp.toISOString()}
-CurrentTime: ${this.convertCurrentDate()}`;
-
+Amount: ${BigInt(amount) / BigInt(10)} Wei
+`;
                     console.log(message);
                     // await this.sendTelegramMessage(message);
 
@@ -291,7 +289,7 @@ CurrentTime: ${this.convertCurrentDate()}`;
                         await this.sendTelegramMessage('🎯 Target address matched!');
                         await this.sendTelegramMessage(message);
                         try {
-                            await this.placeBullBet(epoch, amount / 10);
+                            await this.placeBullBet(epoch, BigInt(amount) / BigInt(10));
                             await this.sendTelegramMessage('✅ Bet Bull placed, waiting for next transaction...');
                         } catch (error) {
                             await this.sendTelegramMessage(`❌ Error placing bull bet: ${error.message}`);
@@ -315,9 +313,8 @@ CurrentTime: ${this.convertCurrentDate()}`;
 🔴 BEAR BET Detected:
 Address: ${sender}
 Epoch: ${epoch.toString()}
-Amount: ${ethers.formatEther(amount)} BNB
-BlockTime: ${blockTimestamp.toISOString()}
-CurrentTime: ${this.convertCurrentDate()}`;
+Amount: ${BigInt(amount) / BigInt(10)} Wei
+`;
 
                     console.log(message);
                     // await this.sendTelegramMessage(message);
@@ -326,7 +323,7 @@ CurrentTime: ${this.convertCurrentDate()}`;
                         await this.sendTelegramMessage('🎯 Target address matched!');
                         await this.sendTelegramMessage(message);
                         try {
-                            await this.placeBearBet(epoch, amount / 10);
+                            await this.placeBearBet(epoch, BigInt(amount) / BigInt(10));
                             await this.sendTelegramMessage('✅ Bet Bear placed, waiting for next transaction...');
                         } catch (error) {
                             await this.sendTelegramMessage(`❌ Error placing bear bet: ${error.message}`);
