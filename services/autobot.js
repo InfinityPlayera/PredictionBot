@@ -76,24 +76,6 @@ class AutoBot {
         }
     }
 
-    convertCurrentDate() {
-        // Get the current timestamp
-        const now = Date.now();
-        // Create a new Date object
-        const date = new Date(now);
-        // Extract the components
-        const year = String(date.getFullYear()).slice(-2); // Last two digits of the year
-        const month = String(date.getMonth() + 1).padStart(2, '0'); // Months are 0-indexed
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        const seconds = String(date.getSeconds()).padStart(2, '0');
-        const milliseconds = String(date.getMilliseconds()).padStart(3, '0'); // Milliseconds can have 3 digits
-        // Format the string
-        const formattedDate = `${year}/${month}/${day} ${hours}/${minutes}/${seconds}/${milliseconds}`;
-        return formattedDate;
-    }
-
     async claimRewards() {
         try {
             // Get unclaimed bets from MongoDB
@@ -187,12 +169,18 @@ class AutoBot {
 
     async checkConnection() {
         try {
-            if (!this.txContract) {
-                throw new Error('Contract not initialized');
+            if (!this.txContract || !this.listenerContract) {
+                return false;
             }
-            await this.txContract.currentEpoch();
+            // Check both contracts
+            await Promise.all([
+                this.txContract.currentEpoch(),
+                this.listenerContract.currentEpoch()
+            ]);
+            this.reconnectAttempts = 0; // Reset reconnect attempts on successful connection
             return true;
         } catch (error) {
+            console.error('Connection check failed:', error);
             return false;
         }
     }
@@ -200,50 +188,177 @@ class AutoBot {
     async monitorConnection() {
         if (!this.isRunning) return;
 
-        const isConnected = await this.checkConnection();
-        if (!isConnected) {
-            await this.sendTelegramMessage('⚠️ Connection lost, attempting to reconnect...');
-            await this.reconnect();
+        try {
+            const isConnected = await this.checkConnection();
+            if (!isConnected) {
+                await this.sendTelegramMessage('⚠️ Connection lost, attempting to reconnect...');
+                await this.reconnect();
+            }
+        } catch (error) {
+            console.error('Monitor connection error:', error);
+        } finally {
+            if (this.isRunning) {
+                setTimeout(() => this.monitorConnection(), this.connectionCheckInterval);
+            }
         }
-
-        // Check connection every 30 seconds
-        setTimeout(() => this.monitorConnection(), 30000);
     }
 
-    // Add this method to AutoBot class
     async reconnect() {
         try {
-            await this.sendTelegramMessage('🔄 Attempting to reconnect...');
-
-            // Close existing connections
-            if (this.listenerProvider) {
-                await this.listenerProvider.destroy();
-            }
-            if (this.txProvider) {
-                await this.txProvider.destroy();
+            if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                await this.sendTelegramMessage('❌ Max reconnection attempts reached. Stopping bot...');
+                await this.stop();
+                return;
             }
 
-            // Recreate providers
-            this.listenerProvider = new ethers.WebSocketProvider(WSS_ENDPOINTS_CALL);
-            this.txProvider = new ethers.WebSocketProvider(WSS_ENDPOINTS_TX);
+            this.reconnectAttempts++;
+            await this.sendTelegramMessage(`🔄 Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}...`);
 
-            // Recreate wallet and contracts
-            this.wallet = new ethers.Wallet(process.env.PRIVATE_KEY, this.txProvider);
-            this.listenerContract = new ethers.Contract(PREDICTION_CONTRACT, CONTRACT_ABI, this.listenerProvider);
-            this.txContract = new ethers.Contract(PREDICTION_CONTRACT, CONTRACT_ABI, this.wallet);
+            // Cleanup existing connections
+            await this.cleanup();
 
-            // Reattach event listeners
-            this.listenerContract.on("BetBull", this.bullListener);
-            this.listenerContract.on("BetBear", this.bearListener);
+            // Setup new connections
+            await this.setupConnections();
+
+            // Verify connection
+            const isConnected = await this.checkConnection();
+            if (!isConnected) {
+                throw new Error('Connection verification failed');
+            }
 
             await this.sendTelegramMessage('✅ Reconnection successful');
+            this.setupComplete = true;
         } catch (error) {
+            console.error('Reconnection failed:', error);
             await this.sendTelegramMessage(`❌ Reconnection failed: ${error.message}`);
-            // Try again after 5 seconds
-            setTimeout(() => this.reconnect(), 5000);
+            
+            if (this.isRunning) {
+                setTimeout(() => this.reconnect(), this.reconnectDelay);
+            }
         }
     }
 
+    async setupConnections() {
+        // Setup providers
+        this.listenerProvider = new ethers.WebSocketProvider(WSS_ENDPOINTS_CALL);
+        this.txProvider = new ethers.WebSocketProvider(WSS_ENDPOINTS_TX);
+
+        // Create wallet
+        this.wallet = new ethers.Wallet(process.env.PRIVATE_KEY, this.txProvider);
+
+        // Create contracts
+        this.listenerContract = new ethers.Contract(PREDICTION_CONTRACT, CONTRACT_ABI, this.listenerProvider);
+        this.txContract = new ethers.Contract(PREDICTION_CONTRACT, CONTRACT_ABI, this.wallet);
+
+        // Setup event listeners
+        this.setupEventListeners();
+    }
+
+    setupEventListeners() {
+        this.bullListener = async (sender, epoch, amount, event) => {
+            try {
+                if (!await this.checkConnection()) {
+                    await this.reconnect();
+                    return;
+                }
+
+                const message = `
+🟢 BULL BET Detected:
+Address: ${sender}
+Epoch: ${epoch.toString()}
+Amount: ${ethers.formatEther(amount.toString())} BNB
+`;
+                console.log(message);
+
+                if (sender.toLowerCase() === process.env.TARGET_ADDRESS?.toLowerCase()) {
+                    await this.sendTelegramMessage('🎯 Target address matched!');
+                    await this.sendTelegramMessage(message);
+                    await this.retryBet(() => this.placeBullBet(epoch, BigInt(amount) / BigInt(10)));
+                }
+            } catch (error) {
+                console.error('Error in bull listener:', error);
+                await this.handleListenerError('bull', error);
+            }
+        };
+
+        this.bearListener = async (sender, epoch, amount, event) => {
+            try {
+                if (!await this.checkConnection()) {
+                    await this.reconnect();
+                    return;
+                }
+
+                const message = `
+🔴 BEAR BET Detected:
+Address: ${sender}
+Epoch: ${epoch.toString()}
+Amount: ${ethers.formatEther(amount.toString())} BNB
+`;
+                console.log(message);
+
+                if (sender.toLowerCase() === process.env.TARGET_ADDRESS?.toLowerCase()) {
+                    await this.sendTelegramMessage('🎯 Target address matched!');
+                    await this.sendTelegramMessage(message);
+                    await this.retryBet(() => this.placeBearBet(epoch, BigInt(amount) / BigInt(10)));
+                }
+            } catch (error) {
+                console.error('Error in bear listener:', error);
+                await this.handleListenerError('bear', error);
+            }
+        };
+
+        // Attach listeners
+        this.listenerContract.on("BetBull", this.bullListener);
+        this.listenerContract.on("BetBear", this.bearListener);
+    }
+
+    async retryBet(betFunction, maxRetries = 3) {
+        for (let i = 0; i < maxRetries; i++) {
+            try {
+                await betFunction();
+                await this.sendTelegramMessage('✅ Bet placed successfully');
+                return;
+            } catch (error) {
+                if (i === maxRetries - 1) {
+                    await this.sendTelegramMessage(`❌ Final bet attempt failed: ${error.message}`);
+                } else {
+                    console.log(`Retry attempt ${i + 1}/${maxRetries}`);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            }
+        }
+    }
+
+    async handleListenerError(type, error) {
+        await this.sendTelegramMessage(`❌ Error in ${type} listener: ${error.message}`);
+        if (!await this.checkConnection()) {
+            await this.reconnect();
+        }
+    }
+
+    async cleanup() {
+        try {
+            // Remove event listeners
+            if (this.listenerContract) {
+                this.listenerContract.removeAllListeners();
+            }
+
+            // Destroy providers
+            await Promise.all([
+                this.listenerProvider?.destroy(),
+                this.txProvider?.destroy()
+            ]);
+
+            // Reset instances
+            this.listenerProvider = null;
+            this.txProvider = null;
+            this.listenerContract = null;
+            this.txContract = null;
+            this.wallet = null;
+        } catch (error) {
+            console.error('Cleanup error:', error);
+        }
+    }
 
     async start() {
         try {
@@ -253,137 +368,38 @@ class AutoBot {
             }
 
             this.isRunning = true;
-            console.log('🔄 Setting up WebSocket connections...');
             await this.sendTelegramMessage('🔄 Bot starting...');
-
-            // Setup providers
-            this.listenerProvider = new ethers.WebSocketProvider(WSS_ENDPOINTS_CALL);
-            this.txProvider = new ethers.WebSocketProvider(WSS_ENDPOINTS_TX);
-
-            // Create wallet from private key
-            if (!process.env.PRIVATE_KEY) {
-                throw new Error('PRIVATE_KEY not found in environment variables');
-            }
-            this.wallet = new ethers.Wallet(process.env.PRIVATE_KEY, this.txProvider);
-
-            // Create contract instances
-            this.listenerContract = new ethers.Contract(PREDICTION_CONTRACT, CONTRACT_ABI, this.listenerProvider);
-            this.txContract = new ethers.Contract(PREDICTION_CONTRACT, CONTRACT_ABI, this.wallet);
-
-            // Define listeners
-            this.bullListener = async (sender, epoch, amount, event) => {
-                try {
-                    const message = `
-🟢 BULL BET Detected:
-Address: ${sender}
-Epoch: ${epoch.toString()}
-Amount: ${ethers.formatEther(amount.toString())} BNB
-`;
-                    console.log(message);
-                    // await this.sendTelegramMessage(message);
-
-                    if (sender.toLowerCase() === process.env.TARGET_ADDRESS?.toLowerCase()) {
-                        await this.sendTelegramMessage('🎯 Target address matched!');
-                        await this.sendTelegramMessage(message);
-                        try {
-                            await this.placeBullBet(epoch, BigInt(amount) / BigInt(10));
-                            await this.sendTelegramMessage('✅ Bet Bull placed, waiting for next transaction...');
-                        } catch (error) {
-                            await this.sendTelegramMessage(`❌ Error placing bull bet: ${error.message}`);
-                            await this.sendTelegramMessage('🔄 Continuing to monitor for next transaction...');
-                        }
-
-                    }
-                } catch (error) {
-                    console.error('Error in bull listener:', error);
-                    await this.sendTelegramMessage(`❌ Error in bull listener: ${error.message}`);
-                    await this.sendTelegramMessage('🔄 Continuing to monitor...');
-                }
-            };
-
-            this.bearListener = async (sender, epoch, amount, event) => {
-                try {
-                    const message = `
-🔴 BEAR BET Detected:
-Address: ${sender}
-Epoch: ${epoch.toString()}
-Amount: ${ethers.formatEther(amount.toString())} BNB
-`;
-
-                    console.log(message);
-                    // await this.sendTelegramMessage(message);
-
-                    if (sender.toLowerCase() === process.env.TARGET_ADDRESS?.toLowerCase()) {
-                        await this.sendTelegramMessage('🎯 Target address matched!');
-                        await this.sendTelegramMessage(message);
-                        try {
-                            await this.placeBearBet(epoch, BigInt(amount) / BigInt(10));
-                            await this.sendTelegramMessage('✅ Bet Bear placed, waiting for next transaction...');
-                        } catch (error) {
-                            await this.sendTelegramMessage(`❌ Error placing bear bet: ${error.message}`);
-                            await this.sendTelegramMessage('🔄 Continuing to monitor for next transaction...');
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error in bear listener:', error);
-                    await this.sendTelegramMessage(`Error in bear listener: ${error.message}`);
-                    await this.sendTelegramMessage('🔄 Continuing to monitor...');
-                }
-            };
-
-            // Add event listeners
-            this.listenerContract.on("BetBull", this.bullListener);
-            this.listenerContract.on("BetBear", this.bearListener);
-            await this.sendTelegramMessage('🔄 Event listeners set up and waiting for transactions...');
-
-            console.log('✅ WebSocket connections established');
-            await this.sendTelegramMessage('✅ WebSocket connections established\n👀 Monitoring PancakeSwap Prediction events...');
-
+            
+            await this.setupConnections();
+            this.setupComplete = true;
+            
+            await this.sendTelegramMessage('✅ Bot started successfully\n👀 Monitoring PancakeSwap Prediction events...');
+            
             this.monitorConnection();
-
         } catch (error) {
             this.isRunning = false;
-            const errorMsg = `Setup error: ${error.message}`;
-            console.error(errorMsg);
-            await this.sendTelegramMessage(errorMsg);
-            if (this.isRunning) {
-                setTimeout(() => this.start(), 5000);
+            console.error('Start error:', error);
+            await this.sendTelegramMessage(`❌ Start error: ${error.message}`);
+            
+            if (!this.setupComplete) {
+                setTimeout(() => this.start(), this.reconnectDelay);
             }
         }
     }
 
     async stop() {
         try {
-            if (!this.isRunning) {
-                return;
-            }
+            if (!this.isRunning) return;
 
             this.isRunning = false;
             await this.sendTelegramMessage('🛑 Bot stopping...');
-
-            // Remove event listeners
-            if (this.listenerContract) {
-                this.listenerContract.removeListener("BetBull", this.bullListener);
-                this.listenerContract.removeListener("BetBear", this.bearListener);
-            }
-
-            // Close WebSocket providers
-            if (this.listenerProvider) {
-                await this.listenerProvider.destroy();
-                this.listenerProvider = null;
-            }
-            if (this.txProvider) {
-                await this.txProvider.destroy();
-                this.txProvider = null;
-            }
-
-            this.listenerContract = null;
-            this.txContract = null;
-            this.wallet = null;
+            
+            await this.cleanup();
+            
             await this.sendTelegramMessage('✅ Bot stopped successfully');
         } catch (error) {
-            console.error('Error stopping bot:', error);
-            await this.sendTelegramMessage(`Error stopping bot: ${error.message}`);
+            console.error('Stop error:', error);
+            await this.sendTelegramMessage(`❌ Stop error: ${error.message}`);
         }
     }
 }
