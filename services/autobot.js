@@ -273,7 +273,7 @@ Amount: ${ethers.formatEther(amount.toString())} BNB
                 if (sender.toLowerCase() === process.env.TARGET_ADDRESS?.toLowerCase()) {
                     await this.sendTelegramMessage('🎯 Target address matched!');
                     await this.sendTelegramMessage(message);
-                    await this.retryBet(() => this.placeBullBet(epoch, BigInt(amount) / BigInt(10)));
+                    await this.placeBullBet(epoch, BigInt(amount) / BigInt(10));
                 }
             } catch (error) {
                 console.error('Error in bull listener:', error);
@@ -299,7 +299,7 @@ Amount: ${ethers.formatEther(amount.toString())} BNB
                 if (sender.toLowerCase() === process.env.TARGET_ADDRESS?.toLowerCase()) {
                     await this.sendTelegramMessage('🎯 Target address matched!');
                     await this.sendTelegramMessage(message);
-                    await this.retryBet(() => this.placeBearBet(epoch, BigInt(amount) / BigInt(10)));
+                    await this.placeBearBet(epoch, BigInt(amount) / BigInt(10));
                 }
             } catch (error) {
                 console.error('Error in bear listener:', error);
@@ -310,23 +310,6 @@ Amount: ${ethers.formatEther(amount.toString())} BNB
         // Attach listeners
         this.listenerContract.on("BetBull", this.bullListener);
         this.listenerContract.on("BetBear", this.bearListener);
-    }
-
-    async retryBet(betFunction, maxRetries = 3) {
-        for (let i = 0; i < maxRetries; i++) {
-            try {
-                await betFunction();
-                await this.sendTelegramMessage('✅ Bet placed successfully');
-                return;
-            } catch (error) {
-                if (i === maxRetries - 1) {
-                    await this.sendTelegramMessage(`❌ Final bet attempt failed: ${error.message}`);
-                } else {
-                    console.log(`Retry attempt ${i + 1}/${maxRetries}`);
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                }
-            }
-        }
     }
 
     async handleListenerError(type, error) {
