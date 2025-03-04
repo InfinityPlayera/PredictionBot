@@ -277,7 +277,7 @@ class AutoBot {
 🟢 BULL BET Detected:
 Address: ${sender}
 Epoch: ${epoch.toString()}
-Amount: ${ethers.parseEther(amount.toString())} BNB
+Amount: ${ethers.formatEther(amount.toString())} BNB
 `;
                     console.log(message);
                     // await this.sendTelegramMessage(message);
@@ -307,7 +307,7 @@ Amount: ${ethers.parseEther(amount.toString())} BNB
 🔴 BEAR BET Detected:
 Address: ${sender}
 Epoch: ${epoch.toString()}
-Amount: ${ethers.parseEther(amount.toString())} BNB
+Amount: ${ethers.formatEther(amount.toString())} BNB
 `;
 
                     console.log(message);
