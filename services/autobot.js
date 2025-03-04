@@ -16,6 +16,18 @@ class AutoBot {
         this.wallet = null;
         this.bullListener = null;
         this.bearListener = null;
+        
+        // Connection management properties
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 10;
+        this.reconnectDelay = 30000; // 30 seconds
+        this.connectionCheckInterval = 60000; // 60 seconds
+        this.setupComplete = false;
+        
+        // Watchdog properties
+        this.lastActivityTimestamp = Date.now();
+        this.watchdogInterval = 15 * 60 * 1000; // 15 minutes
+        this.dailyRestartTimer = null;
     }
 
     async sendTelegramMessage(message) {
@@ -45,6 +57,7 @@ class AutoBot {
             const message = `Successfully placing bull bet on ${epoch}`;
             console.log(message);
             await this.sendTelegramMessage(message);
+            this.lastActivityTimestamp = Date.now(); // Update activity timestamp
         } catch (error) {
             const errorMsg = `Error placing bull bet on ${epoch}: ${error.message}`;
             console.error(errorMsg);
@@ -69,6 +82,7 @@ class AutoBot {
             const message = `Successfully placing bear bet on ${epoch}`;
             console.log(message);
             await this.sendTelegramMessage(message);
+            this.lastActivityTimestamp = Date.now(); // Update activity timestamp
         } catch (error) {
             const errorMsg = `Error placing bear bet on ${epoch}: ${error.message}`;
             console.error(errorMsg);
@@ -96,6 +110,9 @@ class AutoBot {
                 notClosed: [],
                 noRewards: []
             };
+            
+            const epochsToDelete = []; // Track epochs to delete
+            
             for (const bet of unclaimedBets) {
                 try {
                     const round = await this.txContract.rounds(BigInt(bet.epoch));
@@ -111,16 +128,21 @@ class AutoBot {
                         claimableEpochs.push(BigInt(bet.epoch));
                     } else {
                         skippedEpochs.noRewards.push(BigInt(bet.epoch));
-                        // Update claimed status for epochs with no rewards
-                        await ClaimEpoch.updateOne(
-                            { epoch: bet.epoch, userAddress: bet.userAddress },
-                            { claimed: true }
-                        );
+                        // Delete epochs with no rewards instead of updating them
+                        epochsToDelete.push(bet.epoch);
                     }
                 } catch (error) {
                     console.error(`Error checking round ${bet.epoch}:`, error);
                     await this.sendTelegramMessage(`Error checking round ${bet.epoch}: ${error.message}`);
                 }
+            }
+            
+            // Delete epochs with no rewards
+            if (epochsToDelete.length > 0) {
+                await ClaimEpoch.deleteMany({
+                    epoch: { $in: epochsToDelete },
+                    userAddress: this.wallet.address
+                });
             }
 
             // Prepare status message
@@ -129,7 +151,7 @@ class AutoBot {
                 statusMessage += `Rounds not yet closed: ${skippedEpochs.notClosed.join(', ')}\n`;
             }
             if (skippedEpochs.noRewards.length > 0) {
-                statusMessage += `Rounds with no rewards: ${skippedEpochs.noRewards.join(', ')}\n`;
+                statusMessage += `Rounds with no rewards (deleted): ${skippedEpochs.noRewards.join(', ')}\n`;
             }
 
             if (claimableEpochs.length === 0) {
@@ -143,23 +165,21 @@ class AutoBot {
                 const tx = await this.txContract.claim(claimableEpochs);
                 await tx.wait();
             } catch (error) {
-                console.error('Claim Error: ', error)
+                console.error('Claim Error: ', error);
+                await this.sendTelegramMessage(`Claim Error: ${error.message}`);
+                return;
             }
 
-            // Update claimed status in MongoDB for claimed epochs
-            await ClaimEpoch.updateMany(
-                {
-                    epoch: { $in: claimableEpochs },
-                    userAddress: this.wallet.address
-                },
-                {
-                    claimed: true
-                }
-            );
+            // Delete claimed epochs instead of updating them
+            await ClaimEpoch.deleteMany({
+                epoch: { $in: claimableEpochs.map(e => e.toString()) },
+                userAddress: this.wallet.address
+            });
 
             const successMessage = `Successfully claimed rewards for epochs: ${claimableEpochs.join(', ')}\n\n${statusMessage}`;
             console.log(successMessage);
             await this.sendTelegramMessage(successMessage.trim());
+            this.lastActivityTimestamp = Date.now(); // Update activity timestamp
         } catch (error) {
             const errorMsg = `Error claiming rewards: ${error.message}`;
             console.error(errorMsg);
@@ -170,14 +190,19 @@ class AutoBot {
     async checkConnection() {
         try {
             if (!this.txContract || !this.listenerContract) {
+                console.log("Contracts not initialized");
                 return false;
             }
+            
             // Check both contracts
-            await Promise.all([
+            const [txEpoch, listenerEpoch] = await Promise.all([
                 this.txContract.currentEpoch(),
                 this.listenerContract.currentEpoch()
             ]);
+            
+            console.log(`Connection check passed. Current epoch: ${txEpoch}`);
             this.reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+            this.lastActivityTimestamp = Date.now(); // Update activity timestamp
             return true;
         } catch (error) {
             console.error('Connection check failed:', error);
@@ -233,8 +258,69 @@ class AutoBot {
             await this.sendTelegramMessage(`❌ Reconnection failed: ${error.message}`);
             
             if (this.isRunning) {
-                setTimeout(() => this.reconnect(), this.reconnectDelay);
+                // Exponential backoff for reconnection
+                const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 300000); // Max 5 minutes
+                await this.sendTelegramMessage(`Trying again in ${Math.round(delay/1000)} seconds...`);
+                setTimeout(() => this.reconnect(), delay);
             }
+        }
+    }
+
+    setupWebSocketHandlers(provider, name) {
+        if (!provider || !provider._websocket) return;
+        
+        const ws = provider._websocket;
+        
+        ws.on('error', async (error) => {
+            console.error(`${name} WebSocket error:`, error);
+            await this.sendTelegramMessage(`⚠️ ${name} WebSocket error: ${error.message}`);
+            if (this.isRunning) await this.reconnect();
+        });
+        
+        ws.on('close', async (code, reason) => {
+            console.log(`${name} WebSocket closed with code ${code} and reason: ${reason || 'Unknown'}`);
+            await this.sendTelegramMessage(`⚠️ ${name} WebSocket closed. Reconnecting...`);
+            if (this.isRunning) await this.reconnect();
+        });
+    }
+
+    async setupHeartbeat() {
+        if (!this.isRunning) return;
+        
+        try {
+            // Simple request to keep connection alive
+            if (this.listenerContract) {
+                await this.listenerContract.currentEpoch();
+                console.log("Heartbeat: Listener connection active");
+            }
+            if (this.txContract) {
+                await this.txContract.currentEpoch();
+                console.log("Heartbeat: Transaction connection active");
+            }
+        } catch (error) {
+            console.error('Heartbeat error:', error);
+            if (this.isRunning) await this.reconnect();
+        } finally {
+            // Schedule next heartbeat
+            if (this.isRunning) {
+                setTimeout(() => this.setupHeartbeat(), 30000); // Every 30 seconds
+            }
+        }
+    }
+
+    async watchdog() {
+        if (!this.isRunning) return;
+        
+        const currentTime = Date.now();
+        const inactivityTime = currentTime - this.lastActivityTimestamp;
+        
+        if (inactivityTime > this.watchdogInterval) {
+            await this.sendTelegramMessage(`⚠️ No activity for ${Math.floor(inactivityTime/60000)} minutes. Restarting bot...`);
+            await this.stop();
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            await this.start();
+        } else {
+            setTimeout(() => this.watchdog(), 60000); // Check every minute
         }
     }
 
@@ -242,6 +328,10 @@ class AutoBot {
         // Setup providers
         this.listenerProvider = new ethers.WebSocketProvider(WSS_ENDPOINTS_CALL);
         this.txProvider = new ethers.WebSocketProvider(WSS_ENDPOINTS_TX);
+
+        // Add WebSocket event handlers
+        this.setupWebSocketHandlers(this.listenerProvider, "Listener");
+        this.setupWebSocketHandlers(this.txProvider, "Transaction");
 
         // Create wallet
         this.wallet = new ethers.Wallet(process.env.PRIVATE_KEY, this.txProvider);
@@ -257,6 +347,8 @@ class AutoBot {
     setupEventListeners() {
         this.bullListener = async (sender, epoch, amount, event) => {
             try {
+                this.lastActivityTimestamp = Date.now(); // Update activity timestamp
+                
                 if (!await this.checkConnection()) {
                     await this.reconnect();
                     return;
@@ -283,6 +375,8 @@ Amount: ${ethers.formatEther(amount.toString())} BNB
 
         this.bearListener = async (sender, epoch, amount, event) => {
             try {
+                this.lastActivityTimestamp = Date.now(); // Update activity timestamp
+                
                 if (!await this.checkConnection()) {
                     await this.reconnect();
                     return;
@@ -326,6 +420,12 @@ Amount: ${ethers.formatEther(amount.toString())} BNB
                 this.listenerContract.removeAllListeners();
             }
 
+            // Clear timers
+            if (this.dailyRestartTimer) {
+                clearTimeout(this.dailyRestartTimer);
+                this.dailyRestartTimer = null;
+            }
+
             // Destroy providers
             await Promise.all([
                 this.listenerProvider?.destroy(),
@@ -351,14 +451,28 @@ Amount: ${ethers.formatEther(amount.toString())} BNB
             }
 
             this.isRunning = true;
+            this.reconnectAttempts = 0; // Reset reconnect attempts
+            this.lastActivityTimestamp = Date.now(); // Reset activity timestamp
             await this.sendTelegramMessage('🔄 Bot starting...');
             
             await this.setupConnections();
             this.setupComplete = true;
             
-            await this.sendTelegramMessage('✅ Bot started successfully\n👀 Monitoring PancakeSwap Prediction events...');
-            
+            // Start heartbeat, connection monitoring, and watchdog
+            this.setupHeartbeat();
             this.monitorConnection();
+            this.watchdog();
+            
+            // Setup daily restart
+            const restartTime = 24 * 60 * 60 * 1000; // 24 hours
+            this.dailyRestartTimer = setTimeout(async () => {
+                await this.sendTelegramMessage('🔄 Performing scheduled daily restart...');
+                await this.stop();
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                await this.start();
+            }, restartTime);
+            
+            await this.sendTelegramMessage('✅ Bot started successfully\n👀 Monitoring PancakeSwap Prediction events...');
         } catch (error) {
             this.isRunning = false;
             console.error('Start error:', error);
