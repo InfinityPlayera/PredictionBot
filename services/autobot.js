@@ -273,14 +273,11 @@ class AutoBot {
             // Define listeners
             this.bullListener = async (sender, epoch, amount, event) => {
                 try {
-                    const block = await this.listenerProvider.getBlock(event.blockNumber);
-                    const blockTimestamp = new Date(block.timestamp * 1000);
-
                     const message = `
 🟢 BULL BET Detected:
 Address: ${sender}
 Epoch: ${epoch.toString()}
-Amount: ${BigInt(amount) / BigInt(10)} Wei
+Amount: ${ethers.parseEther(amount)} BNB
 `;
                     console.log(message);
                     // await this.sendTelegramMessage(message);
@@ -306,14 +303,11 @@ Amount: ${BigInt(amount) / BigInt(10)} Wei
 
             this.bearListener = async (sender, epoch, amount, event) => {
                 try {
-                    const block = await this.listenerProvider.getBlock(event.blockNumber);
-                    const blockTimestamp = new Date(block.timestamp * 1000);
-
                     const message = `
 🔴 BEAR BET Detected:
 Address: ${sender}
 Epoch: ${epoch.toString()}
-Amount: ${BigInt(amount) / BigInt(10)} Wei
+Amount: ${ethers.parseEther(amount)} BNB
 `;
 
                     console.log(message);
