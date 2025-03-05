@@ -1,6 +1,6 @@
 // config/constants.js
 const WSS_ENDPOINTS_CALL = process.env.WSS_ENDPOINTS_CALL;
-const WSS_ENDPOINTS_TX = process.env.WSS_ENDPOINTS_TX;
+const RPC_ENDPOINTS_TX = process.env.RPC_ENDPOINTS_TX;
 const PREDICTION_CONTRACT = process.env.PREDICTION_CONTRACT;
 
 // Add validation
@@ -8,8 +8,8 @@ if (!WSS_ENDPOINTS_CALL) {
     throw new Error('WSS_ENDPOINTS_CALL is not defined in environment variables');
 }
 
-if (!WSS_ENDPOINTS_TX) {
-    throw new Error('WSS_ENDPOINTS_TX is not defined in environment variables');
+if (!RPC_ENDPOINTS_TX) {
+    throw new Error('RPC_ENDPOINTS_TX is not defined in environment variables');
 }
 
 if (!PREDICTION_CONTRACT) {
@@ -18,6 +18,6 @@ if (!PREDICTION_CONTRACT) {
 
 module.exports = {
     WSS_ENDPOINTS_CALL,
-    WSS_ENDPOINTS_TX,
+    RPC_ENDPOINTS_TX,
     PREDICTION_CONTRACT
 };
