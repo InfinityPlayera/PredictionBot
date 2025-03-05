@@ -4,7 +4,7 @@ async function placeBullBet(epoch, amount, txContract, address) {
     try {
         const tx = await txContract.betBull(epoch, {
             value: amount,
-            gasLimit: 500000
+            gasLimit: 700000
         });
         await tx.wait();
 
@@ -28,7 +28,7 @@ async function placeBearBet(epoch, amount, txContract, address) {
     try {
         const tx = await txContract.betBear(epoch, {
             value: amount,
-            gasLimit: 500000
+            gasLimit: 700000
         });
         await tx.wait();
 
