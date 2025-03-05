@@ -2,11 +2,14 @@ const ClaimEpoch = require('../models/claimModel');
 
 async function placeBullBet(epoch, amount, txContract, address) {
     try {
+        console.log('before placebullbet');
         const tx = await txContract.betBull(epoch, {
             value: amount,
             gasLimit: 700000
         });
+        console.log('bet bulling');
         await tx.wait();
+        console.log('waiting tx...');
 
         await ClaimEpoch.create({
             epoch: epoch.toString(),
@@ -26,11 +29,14 @@ async function placeBullBet(epoch, amount, txContract, address) {
 
 async function placeBearBet(epoch, amount, txContract, address) {
     try {
+        console.log('before placebearbet');
         const tx = await txContract.betBear(epoch, {
             value: amount,
             gasLimit: 700000
         });
+        console.log('bet bearing');
         await tx.wait();
+        console.log('waiting tx...');
 
         await ClaimEpoch.create({
             epoch: epoch.toString(),
