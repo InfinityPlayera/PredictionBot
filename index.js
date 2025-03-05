@@ -72,7 +72,7 @@ Amount: ${ethers.formatEther(amount.toString())} BNB
 
             await sendTelegramMessage('🎯 Target address matched!');
             await sendTelegramMessage(message);
-            message = await placeBullBet(epoch, BigInt(amount) / BigInt(10), txContract, wallet.address);
+            message = await placeBullBet(epoch, amount, txContract, wallet.address);
             await sendTelegramMessage(message);
             
             bettingIndex++;
@@ -112,7 +112,7 @@ Amount: ${ethers.formatEther(amount.toString())} BNB
 
             await sendTelegramMessage('🎯 Target address matched!');
             await sendTelegramMessage(message);
-            message = await placeBearBet(epoch, BigInt(amount) / BigInt(10), txContract, wallet.address);
+            message = await placeBearBet(epoch, amount, txContract, wallet.address);
             await sendTelegramMessage(message);
 
             bettingIndex++;
