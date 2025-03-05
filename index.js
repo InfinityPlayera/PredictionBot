@@ -135,14 +135,18 @@ const setupEventListeners = (contract) => {
 function createReconnectingWebSocketProvider() {
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 10;
-    let heartbeatInterval;
+    let heartbeatInterval = null; // Initialize as null
 
     const connect = async () => {
         try {
             // Clean up any existing provider
             if (listenerProvider) {
                 console.log("Cleaning up existing WebSocket provider...");
-                clearInterval(heartbeatInterval);
+                
+                if (heartbeatInterval) {
+                    clearInterval(heartbeatInterval);
+                    heartbeatInterval = null;
+                }
                 
                 try {
                     listenerProvider.removeAllListeners();
@@ -199,7 +203,11 @@ function createReconnectingWebSocketProvider() {
     };
 
     const reconnect = async (reason) => {
-        clearInterval(heartbeatInterval);
+        // Clear the heartbeat interval if it exists
+        if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+            heartbeatInterval = null;
+        }
         
         if (reconnectAttempts >= maxReconnectAttempts) {
             console.error(`Failed to reconnect after ${maxReconnectAttempts} attempts`);
@@ -218,11 +226,32 @@ function createReconnectingWebSocketProvider() {
         }, delay);
     };
 
+    // Add cleanup method for shutdown
+    const cleanup = async () => {
+        console.log("Cleaning up WebSocket resources...");
+        
+        if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+            heartbeatInterval = null;
+        }
+        
+        if (listenerProvider) {
+            try {
+                listenerProvider.removeAllListeners();
+                await listenerProvider.destroy();
+                console.log("WebSocket provider destroyed successfully");
+            } catch (error) {
+                console.error("Error destroying WebSocket provider:", error);
+            }
+        }
+    };
+
     // Initial connection
     connect();
     
     return {
         reconnect,
+        cleanup,
         getStatus: () => ({
             connected: !!(listenerProvider && listenerProvider.websocket && listenerProvider.websocket.readyState === 1),
             reconnectAttempts: reconnectAttempts
@@ -271,11 +300,8 @@ process.once('SIGINT', async () => {
     
     try {
         console.log('Closing WebSocket connections...');
-        clearInterval(heartbeatInterval);
-        
-        if (listenerProvider) {
-            await listenerProvider.destroy();
-        }
+        // Use the cleanup method from wsManager instead of directly accessing heartbeatInterval
+        await wsManager.cleanup();
         
         if (txProvider) {
             await txProvider.destroy();
@@ -297,11 +323,8 @@ process.once('SIGTERM', async () => {
     
     try {
         console.log('Closing WebSocket connections...');
-        clearInterval(heartbeatInterval);
-        
-        if (listenerProvider) {
-            await listenerProvider.destroy();
-        }
+        // Use the cleanup method from wsManager instead of directly accessing heartbeatInterval
+        await wsManager.cleanup();
         
         if (txProvider) {
             await txProvider.destroy();
