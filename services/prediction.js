@@ -8,8 +8,12 @@ async function placeBullBet(epoch, amount, txContract, address) {
             gasLimit: 700000
         });
         console.log('bet bulling');
-        await tx.wait();
+        const receipt = await tx.wait();
         console.log('waiting tx...');
+
+        if(receipt.status === 0) {
+            console.error('Transaction failed:', receipt);
+        }
 
         await ClaimEpoch.create({
             epoch: epoch.toString(),
@@ -35,8 +39,12 @@ async function placeBearBet(epoch, amount, txContract, address) {
             gasLimit: 700000
         });
         console.log('bet bearing');
-        await tx.wait();
+        const receipt = await tx.wait();
         console.log('waiting tx...');
+
+        if(receipt.status === 0) {
+            console.error('Transaction failed:', receipt);
+        }
 
         await ClaimEpoch.create({
             epoch: epoch.toString(),
